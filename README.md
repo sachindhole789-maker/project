@@ -1,32 +1,56 @@
 # Reusable .NET Clean Architecture API Template
 
-A reusable starter solution for .NET 10 REST APIs. Copy this repository or mark it as a GitHub template to start new services with the same baseline architecture.
+A reusable .NET 10 API starter. The dependency direction is explicit: **Rest.API → App.Application → App.Domain**, while **App.Infrastructure → App.Domain**. Application code calls Domain interfaces; Infrastructure implements those interfaces. The API is the composition root that wires implementations into dependency injection.
 
-## Solution layout
+## Solution and folder structure
 
 ```text
 .
 ├── App.slnx
 ├── src/
-│   ├── Rest.API/                 # HTTP controllers, middleware, JWT, CORS, SignalR
-│   ├── App.Application/          # Use cases, validators, handlers, dispatch
-│   ├── App.Domain/               # Results, entities/contracts, repository ports
-│   └── App.Infrastructure/       # Dapper, database providers, AWS S3, security
-├── runner/
-│   └── App.Runner/               # Background worker process
-└── tests/
-    └── App.Tests/                # Unit/integration test project
+│   ├── Rest.API/                       # Controllers, middleware, JWT, CORS, SignalR
+│   ├── App.Application/                # Use cases, validators, handlers, dispatcher
+│   │   ├── Common/                      # Application Result and pagination results
+│   │   └── Features/V1/
+│   │       ├── Auth/AuthenticateUserCommand.cs
+│   │       └── User/GetStudentQuery.cs
+│   ├── App.Domain/                      # Contracts and data shapes only
+│   │   ├── Constants/AppConstants, StoredProcedureNames/
+│   │   ├── DTO/Auth, User, Common/
+│   │   ├── Entities/Auth/UserLoginEntity.cs
+│   │   ├── Entities/User/StudentEntity.cs
+│   │   ├── Enums/
+│   │   ├── IInterfaces/IAuthRepository.cs, IStudentRepository.cs, ...
+│   │   ├── Manager/IDbManager.cs
+│   │   └── Service/IOtpManager.cs, security contracts
+│   └── App.Infrastructure/              # Implementations of Domain contracts
+│       ├── Repositories/AuthRepository/
+│       ├── Repositories/StudentRepository/
+│       ├── Manager/DbManager/
+│       └── Service/OtpService/
+├── runner/App.Runner/                   # Background worker process
+└── tests/App.Tests/                     # Unit and integration tests
 ```
 
-### Layer responsibilities
+### Responsibilities and dependency rules
 
-- **Rest.API**: HTTP concerns only. Controllers dispatch requests and wrap application results in the shared response envelope.
-- **App.Application**: use cases, validation and orchestration. Each feature can keep its query/command, response, validator and handler together in one file. Example: `src/App.Application/StudentFeature.cs`.
-- **App.Domain**: dependency-light contracts and result types, including `IDbManager`, `IObjectStorage`, `IRealtimeDashboard`, and security interfaces.
-- **App.Infrastructure**: implementations for SQL Server, PostgreSQL/RDS, Oracle, S3, audit storage, password hashing and secret protection.
-- **App.Runner**: independent hosted worker. Replace the sample heartbeat with a real idempotent task before production.
-- **App.Tests**: add unit and integration tests here.
+- **Rest.API** handles HTTP concerns. Controllers dispatch requests and format the standard response envelope.
+- **App.Application** depends on Domain only. It contains use cases and orchestration. Feature request/response, validator and handler can live together in one feature file.
+- **App.Domain** contains only constants/enums, DTOs, entities, and interfaces. It contains no Dapper, AWS SDK, ASP.NET implementation, or references to Infrastructure. `IAuthRepository` and `IStudentRepository` live in `IInterfaces/`; `IDbManager` lives in `Manager/`; `IOtpManager` lives in `Service/`.
+- **App.Infrastructure** references Domain and implements its contracts in the corresponding repository, manager, and service folders. It does not provide a dependency for Application to call directly.
+- **App.Runner** is an independent hosted worker. Replace the sample heartbeat with a real idempotent job before production.
+- **App.Tests** is the test project for use cases, validation and provider integrations.
 
+### Data flow
+
+```text
+Controller → Application handler → Domain repository interface
+           → Infrastructure repository → Domain IDbManager → stored procedure
+           ← result DTO ← mapped entity ← Dapper row
+           ← Application response record ← Result<T> → API response envelope
+```
+
+The Application handler passes a Domain request DTO to a Domain repository interface. The Infrastructure repository passes that DTO and stored procedure name to `IDbManager`. Dapper maps database column names to a Domain entity; the repository maps that entity to a result DTO; Application maps the DTO to an API feature response. See `Features/V1/User/GetStudentQuery.cs` and `Features/V1/Auth/AuthenticateUserCommand.cs`.
 ## Requirements and first run
 
 Install the .NET 10 SDK. Clone or copy the template, then restore and build:
@@ -86,13 +110,13 @@ The JSON files contain empty resource names and connection strings. This repo do
 
 ## Adding a feature
 
-1. Add a single feature file under `App.Application/Features/V1/<Feature>/`.
+1. Add a feature folder under `App.Application/Features/V1/<Feature>/` and keep the query/command, response, validator and handler together in one file.
 2. Define the request as `IQuery<TResponse>` or `ICommand<TResponse>` and add the response record, FluentValidation validator and handler in that file.
-3. Inject the handler's required repository/service interfaces. Add those interfaces to Domain and implementations to Infrastructure.
+3. Have the handler inject Domain `IInterfaces`/`Service` contracts (for example `IStudentRepository`), not `IDbManager`. Add the interface in Domain and its repository/service implementation in the matching Infrastructure folder. Keep `IDbManager` calls inside Infrastructure repositories.
 4. Add an API controller action that calls `await dispatcher.ExecuteQuery(query)` or `ExecuteCommand(command)` and returns `this.ToActionResult(result)`.
 5. Add tests for the handler and validation rules.
 
-The sample `GET /api/v1/students/{customerId}` demonstrates the query path. The API response envelope has `RequestId`, `Data`, `Message`, `Status`, string `StatusCode`, and optional pagination. Application outcomes are returned with HTTP 200 as requested; request validation and unexpected exceptions use transport-level 400/500 responses.
+The sample `GET /api/v1/students/{customerId}` demonstrates the query → `IStudentRepository` → `IDbManager` → `StudentEntity` → `GetStudentResultDTO` → API response mapping path. The auth feature demonstrates calling `IAuthRepository` and maps credential data without returning the password hash. The API response envelope has `RequestId`, `Data`, `Message`, `Status`, string `StatusCode`, and optional pagination. Application outcomes are returned with HTTP 200 as requested; request validation and unexpected exceptions use transport-level 400/500 responses.
 
 ## Included services and controls
 
@@ -104,7 +128,7 @@ The sample `GET /api/v1/students/{customerId}` demonstrates the query path. The 
 - **Audit**: middleware records request metadata and JSON bodies/responses up to 64 KiB to the `InsertAuditLog` stored procedure. Common secret/password/token fields are redacted. Create the table/procedure, set retention, and consider minimizing body capture for private or regulated data. Audit persistence failures are logged.
 - **Realtime dashboard**: SignalR hub at `/hubs/dashboard`. Inject `IRealtimeDashboard` and call `PublishAsync(topic, data)` from an application service.
 - **Uploads**: `IDocumentUploadService` validates size, allowed content type and file signatures, uploads with S3 server-side encryption, then records metadata with `SaveUploadedFile`. The included malware scanner fails closed for all files. Implement and configure a real scanner before enabling uploads; signature/MIME/extension checks are not virus scanning.
-- **Secrets and passwords**: `ISecretProtector` uses ASP.NET Core Data Protection (authenticated encryption), not custom cryptography. Persist and protect its key ring across replicas. `IPasswordHasher` uses ASP.NET Core's versioned password hasher. Store password hashes, never reversible encrypted passwords.
+- **Secrets and passwords**: `ISecretProtector` uses ASP.NET Core Data Protection (authenticated encryption), not custom cryptography. Persist and protect its key ring across replicas. `IPasswordHasher` uses ASP.NET Core's versioned password hasher. Store password hashes, never reversible encrypted passwords. `IOtpManager` is implemented in `Service/OtpService` using cryptographically random codes, expiry, one-time verification and a five-attempt limit. Its sample cache is process-local; use a distributed store and request throttling for multiple replicas.
 - **Push notifications**: optional Firebase Cloud Messaging adapter behind `INotificationSender`. Set `Firebase:ProjectId` and configure Google Application Default Credentials through workload identity or a secret manager. FCM is listed as no-cost; keep sensitive information out of notification payloads. See [Firebase pricing](https://firebase.google.com/pricing) and [FCM server guidance](https://firebase.google.com/docs/cloud-messaging/server-environment).
 
 ## Git and credential hygiene

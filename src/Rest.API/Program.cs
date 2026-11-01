@@ -1,7 +1,7 @@
 using App.Application;
 using App.Application.Messaging;
-using App.Domain.Data;
-using App.Domain.Results;
+using App.Domain.IInterfaces;
+
 using App.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
@@ -28,6 +28,3 @@ var app=builder.Build();if(app.Environment.IsDevelopment()||app.Environment.IsEn
 app.UseHttpsRedirection();app.UseCors("FlutterDev");app.UseAuthentication();app.UseMiddleware<AuditMiddleware>();app.UseMiddleware<RequestExceptionMiddleware>();app.UseRateLimiter();app.UseAuthorization();app.MapControllers();app.MapHub<DashboardHub>("/hubs/dashboard").RequireCors("FlutterDev");app.Run();
 
 public sealed class UserInfoProvider(IHttpContextAccessor accessor):IUserInfoProvider { public string? UserId=>accessor.HttpContext?.User.FindFirst("sub")?.Value??accessor.HttpContext?.User.Identity?.Name; }
-
-
-

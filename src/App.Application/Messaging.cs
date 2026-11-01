@@ -1,4 +1,4 @@
-using App.Domain.Results;
+using App.Application.Common;
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
 namespace App.Application.Messaging;

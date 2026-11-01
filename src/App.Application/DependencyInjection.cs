@@ -1,6 +1,4 @@
 using App.Application.Messaging;
-using App.Domain.Data;
-using App.Domain.Results;
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
 using System.Reflection;

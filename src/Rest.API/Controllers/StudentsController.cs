@@ -1,6 +1,6 @@
 using App.Application.Features.V1.Users;
 using App.Application.Messaging;
-using App.Domain.Results;
+using Rest.API.Contracts;
 using Microsoft.AspNetCore.Mvc;
 using Rest.API.Middleware;
 namespace Rest.API.Controllers;
