@@ -1,0 +1,11 @@
+logs/
+**/bin/
+**/obj/
+.vs/
+*.user
+*.suo
+.env
+.env.*
+!.env.example
+appsettings.*.local.json
+/App-CleanArchitecture-Template.zip
